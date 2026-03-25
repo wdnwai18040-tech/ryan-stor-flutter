@@ -2,14 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:ryaaans_store/services/loyalty_service.dart';
 
+import '../exceptions/session_expired_exception.dart';
 import '../providers/auth_provider.dart';
 import '../providers/user_provider.dart';
 import '../providers/wallet_provider.dart';
-import '../services/notification_service.dart';
 import '../screens/login_screen.dart';
-import '../screens/home_screen.dart';
-import '../screens/welcome_screen.dart';
 import '../screens/main_navigation_screen.dart';
+import '../screens/welcome_screen.dart';
+import '../services/notification_service.dart';
 
 class AuthWrapper extends StatefulWidget {
   const AuthWrapper({super.key});
@@ -21,6 +21,23 @@ class AuthWrapper extends StatefulWidget {
 class _AuthWrapperState extends State<AuthWrapper> {
   bool _loaded = false;
 
+  Future<void> _bootstrapAuthenticatedUser(AuthProvider auth) async {
+    try {
+      await context.read<UserProvider>().refresh(auth.token!);
+      context.read<WalletProvider>().refresh(force: true);
+      context.read<LoyaltyService>().fetchUserLoyalty();
+      await NotificationService.instance.handlePendingNavigation();
+    } on SessionExpiredException {
+      if (!mounted) return;
+      context.read<UserProvider>().clear();
+      await context.read<AuthProvider>().logout();
+    } catch (_) {
+      if (!mounted) return;
+      context.read<UserProvider>().clear();
+      await context.read<AuthProvider>().logout();
+    }
+  }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -30,20 +47,12 @@ class _AuthWrapperState extends State<AuthWrapper> {
     if (auth.isAuthenticated && !_loaded) {
       _loaded = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        // 👤 بيانات المستخدم
-        context.read<UserProvider>().refresh(auth.token!);
-
-        // 💰 المحفظة
-        context.read<WalletProvider>().refresh(force: true);
-
-        // 🏆 نظام الولاء
-        context.read<LoyaltyService>().fetchUserLoyalty();
-        NotificationService.instance.handlePendingNavigation();
+        _bootstrapAuthenticatedUser(auth);
       });
     }
 
     if (!auth.isAuthenticated) {
-      _loaded = false; // مهم عند تسجيل الخروج
+      _loaded = false;
     }
   }
 
@@ -60,17 +69,18 @@ class _AuthWrapperState extends State<AuthWrapper> {
       return const LoginScreen();
     }
 
-    // ✅ انتظار تحميل بيانات المستخدم
-    if (userProvider.user == null) {
+    if (userProvider.isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // 👇 مستخدم جديد
+    if (userProvider.user == null) {
+      return const LoginScreen();
+    }
+
     if (auth.isNewUser) {
       return const WelcomeScreen();
     }
 
-    // 👇 مستخدم عادي
     return const MainNavigationScreen();
   }
 }

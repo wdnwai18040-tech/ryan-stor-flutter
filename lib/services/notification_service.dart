@@ -133,15 +133,22 @@ class NotificationService {
       return;
     }
 
-    final packageInfo = await PackageInfo.fromPlatform();
-    final payload = <String, dynamic>{
-      'token': fcmToken,
-      'platform': Platform.isAndroid ? 'android' : Platform.operatingSystem,
-      'device_name': await _getDeviceName(),
-      'app_name': packageInfo.appName,
-    };
+    try {
+      final packageInfo = await PackageInfo.fromPlatform();
+      final payload = <String, dynamic>{
+        'token': fcmToken,
+        'platform': Platform.isAndroid ? 'android' : Platform.operatingSystem,
+        'device_name': await _getDeviceName(),
+      };
 
-    await ApiService(token: authToken).post('/devices/fcm-token', payload);
+      if (packageInfo.appName.isNotEmpty) {
+        payload['app_name'] = packageInfo.appName;
+      }
+
+      await ApiService(token: authToken).post('/devices/fcm-token', payload);
+    } catch (error) {
+      debugPrint('FCM token sync failed: $error');
+    }
   }
 
   Future<void> handlePendingNavigation() async {
